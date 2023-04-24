@@ -3,74 +3,64 @@ package vpclattice
 import (
 	"context"
 	"errors"
-	"fmt"
-	"log"
-	"reflect"
-	"regexp"
-	"strings"
-	"time"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/vpclattice"
 	"github.com/aws/aws-sdk-go-v2/service/vpclattice/types"
-	"github.com/hashicorp/aws-sdk-go-base/v2/awsv1shim/v2/tfawserr"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/structure"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/create"
-	"github.com/hashicorp/terraform-provider-aws/internal/flex"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
-	"github.com/hashicorp/terraform-provider-aws/internal/verify"
+	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
 // Function annotations are used for datasource registration to the Provider. DO NOT EDIT.
 // @SDKDataSource("aws_vpclattice_service_network_service_association")
 func DataSourceServiceNetworkServiceAssociation() *schema.Resource {
 	return &schema.Resource{
-		ReadWithoutTimeout:   dataSourceServiceNetworkServiceAssociationRead,
-		
+		ReadWithoutTimeout: dataSourceServiceNetworkServiceAssociationRead,
+
 		Schema: map[string]*schema.Schema{
-			"arn": { 
+			"arn": {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
 			"created_at": {
-				Type:	  schema.TypeString,
+				Type:     schema.TypeString,
 				Computed: true,
 			},
 			"created_by": {
-				Type: 	  schema.TypeString,
+				Type:     schema.TypeString,
 				Computed: true,
 			},
 			"custom_domain_name": {
-				Type:	  schema.TypeString,
+				Type:     schema.TypeString,
 				Computed: true,
 			},
 			"dns_entry": {
-				Type: 	  schema.TypeList,
+				Type:     schema.TypeList,
 				Computed: true,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"domain_name": {
-							Type: 	  schema.TypeString,
+							Type:     schema.TypeString,
 							Computed: true,
 						},
 						"hosted_zone_id": {
-							Type:	  schema.TypeString,
+							Type:     schema.TypeString,
 							Computed: true,
 						},
 					},
 				},
 			},
 			"failure_code": {
-				Type:	  schema.TypeString,
+				Type:     schema.TypeString,
 				Computed: true,
 			},
 			"failure_message": {
-				Type:	  schema.TypeString,
+				Type:     schema.TypeString,
 				Computed: true,
 			},
 			"id": {
@@ -86,15 +76,15 @@ func DataSourceServiceNetworkServiceAssociation() *schema.Resource {
 				Computed: true,
 			},
 			"service_name": {
-				Type: 	  schema.TypeString,
+				Type:     schema.TypeString,
 				Computed: true,
 			},
 			"service_network_arn": {
-				Type:	  schema.TypeString,
+				Type:     schema.TypeString,
 				Computed: true,
 			},
 			"service_network_id": {
-				Type:	  schema.TypeString,
+				Type:     schema.TypeString,
 				Computed: true,
 			},
 			"service_network_name": {
@@ -106,10 +96,10 @@ func DataSourceServiceNetworkServiceAssociation() *schema.Resource {
 				Required: true,
 			},
 			"status": {
-				Type:	  schema.TypeString,
+				Type:     schema.TypeString,
 				Computed: true,
-			}
-			"tags":         tftags.TagsSchemaComputed(), // TIP: Many, but not all, data sources have `tags` attributes.
+			},
+			"tags": tftags.TagsSchemaComputed(), // TIP: Many, but not all, data sources have `tags` attributes.
 		},
 	}
 }
@@ -120,16 +110,17 @@ const (
 
 func dataSourceServiceNetworkServiceAssociationRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	conn := meta.(*conns.AWSClient).VPCLatticeClient()
-	
+
 	service_network_service_association_id := d.Get("service_network_service_association_identifier").(string)
 
 	out, err := findServiceNetworkServiceAssociationById(ctx, conn, service_network_service_association_id)
+
 	if err != nil {
-		return create.DiagError(names.VPCLattice, create.ErrActionReading, DSNameServiceNetworkServiceAssociation, name, err)
+		return create.DiagError(names.VPCLattice, create.ErrActionReading, DSNameServiceNetworkServiceAssociation, service_network_service_association_id, err)
 	}
-		
-	d.SetId(out.Id)
-	
+
+	d.SetId(aws.ToString(out.Id))
+
 	d.Set("arn", out.Arn)
 	d.Set("created_at", aws.ToTime(out.CreatedAt).String())
 	d.Set("created_by", out.CreatedBy)
@@ -144,7 +135,7 @@ func dataSourceServiceNetworkServiceAssociationRead(ctx context.Context, d *sche
 	d.Set("service_network_id", out.ServiceNetworkId)
 	d.Set("service_network_name", out.ServiceNetworkName)
 	d.Set("status", out.Status)
-	
+
 	if out.DnsEntry != nil {
 		if err := d.Set("dns_entry", []interface{}{flattenDNSEntry(out.DnsEntry)}); err != nil {
 			return diag.Errorf("setting dns_entry: %s", err)
@@ -152,7 +143,7 @@ func dataSourceServiceNetworkServiceAssociationRead(ctx context.Context, d *sche
 	} else {
 		d.Set("dns_entry", nil)
 	}
-	
+
 	ignoreTagsConfig := meta.(*conns.AWSClient).IgnoreTagsConfig
 	tags, err := ListTags(ctx, conn, aws.ToString(out.Arn))
 
@@ -170,16 +161,16 @@ func dataSourceServiceNetworkServiceAssociationRead(ctx context.Context, d *sche
 
 func findServiceNetworkServiceAssociationById(ctx context.Context, conn *vpclattice.Client, service_network_service_association_id string) (*vpclattice.GetServiceNetworkServiceAssociationOutput, error) {
 	in := &vpclattice.GetServiceNetworkServiceAssociationInput{
-		ServiceNetworkServiceAssociationIdentifier: service_network_service_association_id,
+		ServiceNetworkServiceAssociationIdentifier: aws.String(service_network_service_association_id),
 	}
 
-	out, err := conn.GetSerivceNetworkServiceAssociation(in)
+	out, err := conn.GetServiceNetworkServiceAssociation(ctx, in)
 
 	if err != nil {
 		var nfe *types.ResourceNotFoundException
-		if error.As(err, &nfe){
+		if errors.As(err, &nfe) {
 			return nil, &retry.NotFoundError{
-				LastError: 	 err,
+				LastError:   err,
 				LastRequest: in,
 			}
 		}

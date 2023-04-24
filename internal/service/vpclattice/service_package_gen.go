@@ -30,6 +30,10 @@ func (p *servicePackage) SDKDataSources(ctx context.Context) []*types.ServicePac
 			Factory:  DataSourceService,
 			TypeName: "aws_vpclattice_service",
 		},
+		{
+			Factory:  DataSourceServiceNetworkServiceAssociation,
+			TypeName: "aws_vpclattice_service_network_service_association",
+		},
 	}
 }
 
